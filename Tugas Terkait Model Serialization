@@ -1,0 +1,197 @@
+{
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "view-in-github",
+        "colab_type": "text"
+      },
+      "source": [
+        "<a href=\"https://colab.research.google.com/github/Hildafah14/MLOps/blob/main/Tugas%20Terkait%20Model%20Serialization\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "kDn_lVxg3Z2G"
+      },
+      "source": [
+        "# Importing a library that is not in Colaboratory\n",
+        "\n",
+        "To import a library that's not in Colaboratory by default, you can use `!pip install` or `!apt-get install`."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "GQ18Kd5F3uKe"
+      },
+      "outputs": [],
+      "source": [
+        "!pip install matplotlib-venn"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "__3eqm3q3sr-"
+      },
+      "outputs": [],
+      "source": [
+        "!apt-get -qq install -y libfluidsynth1"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "apoRbfWsRZ7S"
+      },
+      "source": [
+        "# Install 7zip reader [libarchive](https://pypi.python.org/pypi/libarchive)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "d_j7nNbKRmhx"
+      },
+      "outputs": [],
+      "source": [
+        "# https://pypi.python.org/pypi/libarchive\n",
+        "!apt-get -qq install -y libarchive-dev && pip install -U libarchive\n",
+        "import libarchive"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "PeaSX9KXR58J"
+      },
+      "source": [
+        "# Install GraphViz & [PyDot](https://pypi.python.org/pypi/pydot)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "w9llCG2wSRDx"
+      },
+      "outputs": [],
+      "source": [
+        "# https://pypi.python.org/pypi/pydot\n",
+        "!apt-get -qq install -y graphviz && pip install pydot\n",
+        "import pydot"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "Tlh1MKxGrKFO"
+      },
+      "source": [
+        "# Install [cartopy](http://scitools.org.uk/cartopy/docs/latest/)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "Zq68DSY2rP2W"
+      },
+      "outputs": [],
+      "source": [
+        "!pip install cartopy\n",
+        "import cartopy"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "import pickle, joblib, time, os\n",
+        "from sklearn.datasets import load_iris\n",
+        "from sklearn.ensemble import RandomForestClassifier\n",
+        "from skl2onnx import convert_sklearn\n",
+        "from skl2onnx.common.data_types import FloatTensorType\n",
+        "import onnxruntime as rt\n",
+        "import tensorflow as tf\n",
+        "import torch\n",
+        "\n",
+        "# Load Dataset & Train Model\n",
+        "data = load_iris()\n",
+        "X, y = data.data, data.target\n",
+        "model = RandomForestClassifier(n_estimators=100, random_state=42)\n",
+        "model.fit(X, y)\n",
+        "\n",
+        "# Measure Pickle Serialization\n",
+        "start = time.time()\n",
+        "with open(\"model.pkl\", \"wb\") as f:\n",
+        "    pickle.dump(model, f)\n",
+        "pickle_time = time.time() - start\n",
+        "pickle_size = os.path.getsize(\"model.pkl\")\n",
+        "\n",
+        "# Measure Joblib Serialization\n",
+        "start = time.time()\n",
+        "joblib.dump(model, \"model.joblib\")\n",
+        "joblib_time = time.time() - start\n",
+        "joblib_size = os.path.getsize(\"model.joblib\")\n",
+        "\n",
+        "# Measure ONNX Serialization\n",
+        "initial_type = [('float_input', FloatTensorType([None, 4]))]\n",
+        "onnx_model = convert_sklearn(model, initial_types=initial_type)\n",
+        "with open(\"model.onnx\", \"wb\") as f:\n",
+        "    start = time.time()\n",
+        "    f.write(onnx_model.SerializeToString())\n",
+        "onnx_time = time.time() - start\n",
+        "onnx_size = os.path.getsize(\"model.onnx\")\n",
+        "\n",
+        "# Measure TensorFlow Serialization\n",
+        "tf_model = tf.keras.Sequential([tf.keras.layers.Dense(3, activation='softmax')])\n",
+        "tf_model.compile(optimizer='adam', loss='sparse_categorical_crossentropy')\n",
+        "start = time.time()\n",
+        "tf_model.save(\"tf_model\")\n",
+        "tf_time = time.time() - start\n",
+        "tf_size = sum(os.path.getsize(os.path.join(\"tf_model\", f)) for f in os.listdir(\"tf_model\"))\n",
+        "\n",
+        "# Measure TorchScript Serialization (PyTorch)\n",
+        "dummy_input = torch.randn(1, 4)\n",
+        "scripted_model = torch.jit.trace(torch.nn.Linear(4, 3), dummy_input)\n",
+        "start = time.time()\n",
+        "torch.jit.save(scripted_model, \"model.pt\")\n",
+        "torch_time = time.time() - start\n",
+        "torch_size = os.path.getsize(\"model.pt\")\n",
+        "\n",
+        "# Output Results\n",
+        "results = {\n",
+        "    \"Method\": [\"Pickle\", \"Joblib\", \"ONNX\", \"TensorFlow\", \"TorchScript\"],\n",
+        "    \"Save Time (s)\": [pickle_time, joblib_time, onnx_time, tf_time, torch_time],\n",
+        "    \"File Size (KB)\": [pickle_size / 1024, joblib_size / 1024, onnx_size / 1024, tf_size / 1024, torch_size / 1024]\n",
+        "}\n",
+        "import pandas as pd\n",
+        "df = pd.DataFrame(results)\n",
+        "print(df)\n"
+      ],
+      "metadata": {
+        "id": "TjfK8TC6eGWg"
+      },
+      "execution_count": null,
+      "outputs": []
+    }
+  ],
+  "metadata": {
+    "colab": {
+      "name": "Snippets: Importing libraries",
+      "provenance": [],
+      "include_colab_link": true
+    },
+    "kernelspec": {
+      "display_name": "Python 3",
+      "name": "python3"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 0
+}
